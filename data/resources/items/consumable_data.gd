@@ -15,10 +15,10 @@ extends ItemData
 
 # Server-side logic for what happens when the item is consumed.
 func execute_consume(user) -> void:
-	print("User children: ", user.get_children())
+	#print("User children: ", user.get_children())
 	# Use get_node instead of find_child
 	var health_component = user.get_node("PlayerHealth")
-	print("Found health component: ", health_component)
+	#print("Found health component: ", health_component)
 	if health_component:
 		health_component.heal(health_restore)
 		health_component.restore_stamina(stamina_restore)
