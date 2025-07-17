@@ -21,8 +21,28 @@ var pending_inputs: Array = []
 
 
 func _ready() -> void:
+	# Debug info
+	print("PlayerController _ready() for player: ", name)
+	print("  - My peer ID: ", multiplayer.get_unique_id())
+	print("  - My authority: ", get_multiplayer_authority())
+	print("  - Is this my player?: ", is_multiplayer_authority())
+	
 	# The camera should only be active for the player who owns this character.
 	camera.enabled = is_multiplayer_authority()
+	print("  - Camera enabled: ", camera.enabled)
+	
+	# Update label to show player ID
+	var label = $SpriteLayers/Label
+	if label:
+		label.text = "Player " + name
+	
+	# Add visual indicator to distinguish players
+	if is_multiplayer_authority():
+		modulate = Color.GREEN  # Your player is green
+		if label:
+			label.text += "\n(YOU)"
+	else:
+		modulate = Color.RED    # Other players are red
 
 
 func _physics_process(delta: float) -> void:
@@ -33,6 +53,11 @@ func _physics_process(delta: float) -> void:
 
 	# 1. Get Input and package it with a sequence number and delta time.
 	var input_vector := Input.get_vector("ui_left", "ui_right", "ui_up", "ui_down")
+	
+	# Only print when there's actual input
+	if input_vector.length() > 0:
+		print("Player ", name, " input: ", input_vector)
+	
 	var input_packet: Dictionary = {
 		"sequence": sequence_id,
 		"input_vector": input_vector,
@@ -65,12 +90,21 @@ func _process_movement(input_packet: Dictionary) -> void:
 
 # This is a Remote Procedure Call that ONLY the server can invoke on this client.
 # It is the "Reconciliation" part of our networking model.
-@rpc("call_local", "reliable")
+@rpc("any_peer", "call_local", "reliable")
 func client_rpc_reconcile_state(server_state: Dictionary) -> void:
+	# Security check: Only process if this RPC came from the server
+	if multiplayer.get_remote_sender_id() != 1:
+		return
+		
 	# This function is called by the server to force-correct our state if it
 	# has detected a discrepancy (a "misprediction").
 	if not is_multiplayer_authority():
 		return
+
+	# Debug reconciliation
+	var position_diff = global_position.distance_to(server_state["position"])
+	if position_diff > 1.0:  # Only print significant corrections
+		print("Reconciling player ", name, " - correction distance: ", position_diff)
 
 	# 1. Snap to the server's authoritative state.
 	global_position = server_state["position"]

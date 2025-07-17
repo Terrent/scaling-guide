@@ -41,12 +41,16 @@ func receive_client_input(input_packet: Dictionary) -> void:
 	# 1. Security Check: Ensure the RPC is from the peer that actually owns
 	#    the parent Player node. This prevents one client from sending inputs
 	#    for another client's character.
-	if multiplayer.get_remote_sender_id()!= player_controller.get_multiplayer_authority():
+	if multiplayer.get_remote_sender_id() != player_controller.get_multiplayer_authority():
 		return # Ignore input from non-authoritative peers.
 
 	# 2. Validation Check: Ensure we don't process old or out-of-order packets.
 	if input_packet["sequence"] <= last_processed_sequence:
 		return
+
+	# Debug: Print when we receive input (only if there's actual movement)
+	if input_packet["input_vector"].length() > 0:
+		print("Server received input from player ", player_controller.name, ": ", input_packet["input_vector"])
 
 	# --- Authoritative Processing ---
 	# If the checks pass, we trust the input. The server now runs the exact
