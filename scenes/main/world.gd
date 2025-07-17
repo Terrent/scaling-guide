@@ -1,47 +1,39 @@
 # scenes/main/World.gd
-# Now contains the custom spawn function used by the MultiplayerSpawner.
+# --- FINAL CORRECTED SCRIPT ---
 extends Node
 
-# We preload the scene here, where it's needed.
 var player_scene: PackedScene = preload("res://scenes/entities/Player.tscn")
-
 @onready var player_spawner: MultiplayerSpawner = $PlayerSpawner
 
-# Track spawn count to position players differently
-var spawn_count: int = 0
-
 func _ready() -> void:
-	print("World _ready() called on peer: ", multiplayer.get_unique_id())
+	# This tracer is important. It runs on every peer when they load the world.
+	print("[TRACER] World _ready on peer %d. Is server? %s" % [multiplayer.get_unique_id(), multiplayer.is_server()])
+
+	# The spawner needs to know HOW to create a player when it's told to.
+	# This function will be called on every peer (including the server) when a player is spawned.
+	player_spawner.spawn_function = Callable(self, "_create_player_node")
 	
-	# CRITICAL: Set up the spawn function for the MultiplayerSpawner
-	# This MUST be done before any spawn attempts
-	player_spawner.spawn_function = _spawn_player_custom
-	
-	# Debug: Check if we're server or client
 	if multiplayer.is_server():
-		print("This is the SERVER/HOST")
+		# The server spawns its own player character immediately.
+		# The MultiplayerSpawner will automatically replicate this to clients when they join.
+		print("[TRACER] Server is spawning itself (peer 1).")
+		player_spawner.spawn(1)
 	else:
-		print("This is a CLIENT")
-	
-	# Now request spawn
-	NetworkManager.rpc("server_rpc_request_spawn")
+		# This is a client. After loading the world, it must ask the server to spawn its character.
+		# We send the request via an RPC to the server.
+		# Note: We are calling an RPC on the NetworkManager singleton, as it's guaranteed to exist.
+		print("[TRACER] Client (peer %d) is ready, requesting spawn from server." % multiplayer.get_unique_id())
+		NetworkManager.server_rpc_request_spawn.rpc_id(1)
 
-
-# This is our custom spawn function. The MultiplayerSpawner will call this.
-func _spawn_player_custom(peer_id: int) -> Node:
-	print("_spawn_player_custom called for peer: ", peer_id)
+# This function is called BY THE SPAWNER on all peers to create the actual player node.
+# The spawner handles the replication; this function just defines the object to be created.
+func _create_player_node(peer_id: int) -> Node:
+	print("[SPAWNER] Machine %d is creating instance for player %d" % [multiplayer.get_unique_id(), peer_id])
 	
-	# This function is called by the spawner at the correct time in the lifecycle.
 	var player = player_scene.instantiate()
-	player.name = str(peer_id)
+	player.name = str(peer_id) # The spawner requires unique names for its children.
+	
+	# We MUST set the authority here, before the node's _ready() is called.
 	player.set_multiplayer_authority(peer_id)
 	
-	# Set spawn position so players don't overlap
-	player.position = Vector2(spawn_count * 100, 0)
-	spawn_count += 1
-	
-	print("Player spawned with name: ", player.name, " and authority: ", player.get_multiplayer_authority())
-	print("  - Spawn position: ", player.position)
-	
-	# We return the configured node, and the spawner handles the rest.
 	return player
