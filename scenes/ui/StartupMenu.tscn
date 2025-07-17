@@ -1,0 +1,40 @@
+[gd_scene load_steps=2 format=3 uid="uid://8r4fldnl4lg"]
+
+[ext_resource type="Script" uid="uid://dpc11ufwgbx14" path="res://scenes/ui/StartupMenu.gd" id="1_3d3cn"]
+
+[node name="StartupMenu" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_3d3cn")
+
+[node name="CenterContainer" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="CenterContainer"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="IpAddressLineEdit" type="LineEdit" parent="CenterContainer/VBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+placeholder_text = "Enter IP Address"
+alignment = 1
+
+[node name="HostButton" type="Button" parent="CenterContainer/VBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Host"
+
+[node name="JoinButton" type="Button" parent="CenterContainer/VBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Join"

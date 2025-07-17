@@ -1,0 +1,12 @@
+[gd_scene load_steps=2 format=3 uid="uid://dhj6heogm6yk"]
+
+[ext_resource type="Script" uid="uid://dy0ngqtyigs0r" path="res://scenes/main/world.gd" id="1_db6p3"]
+
+[node name="World" type="Node"]
+script = ExtResource("1_db6p3")
+
+[node name="PlayerContainer" type="Node" parent="."]
+
+[node name="PlayerSpawner" type="MultiplayerSpawner" parent="."]
+_spawnable_scenes = PackedStringArray("uid://dl24pvqm6t4lx")
+spawn_path = NodePath("../PlayerContainer")
