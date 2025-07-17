@@ -1,12 +1,21 @@
 # scenes/main/World.gd
-# This script runs on the main world scene for ALL peers (host and clients).
-# Its purpose is to notify the server that this peer has loaded the world
-# and is ready to have its character spawned.
+# Now contains the custom spawn function used by the MultiplayerSpawner.
 extends Node
 
-# _ready() is called after the node and all its children have entered the scene tree.
+# We preload the scene here, where it's needed.
+var player_scene: PackedScene = preload("res://scenes/entities/Player.tscn")
+
 func _ready() -> void:
-	# --- REMEDIAL STEP ---
-	# All peers, including the host, now use this RPC to request their character.
-	# The server will receive this and spawn the player for the sender.
 	NetworkManager.rpc("server_rpc_request_spawn")
+
+
+# --- REMEDIAL STEP ---
+# This is our new custom spawn function. It will be assigned to the
+# MultiplayerSpawner node in the editor.
+func _spawn_player_custom(peer_id: int) -> Node:
+	# This function is called by the spawner at the correct time in the lifecycle.
+	var player = player_scene.instantiate()
+	player.name = str(peer_id)
+	player.set_multiplayer_authority(peer_id)
+	# We return the configured node, and the spawner handles the rest.
+	return player

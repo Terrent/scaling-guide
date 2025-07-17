@@ -1,15 +1,19 @@
 # core/singletons/NetworkManager.gd
-# Manages the multiplayer session with a robust, unified connection flow.
+# Manages the multiplayer session, now correctly delegating spawning to the MultiplayerSpawner.
 extends Node
 
 const PORT = 8910
 const MAX_PLAYERS = 16
 
 var peer = ENetMultiplayerPeer.new()
-var player_scene: PackedScene = preload("res://scenes/entities/Player.tscn")
+# We no longer preload the player scene here; the spawner's custom function will.
 
 var players: Dictionary = {}
 var server_settings: Dictionary = {}
+
+# --- REMEDIAL STEP ---
+# A variable to hold a reference to the spawner in the world.
+var player_spawner: MultiplayerSpawner
 
 
 # --- Public API ---
@@ -25,9 +29,6 @@ func create_server(settings: Dictionary) -> void:
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
 
-	# --- REMEDIAL STEP ---
-	# The server now treats itself like any other client. It connects and
-	# immediately gets the command to load the world in _on_peer_connected.
 	_on_peer_connected(multiplayer.get_unique_id())
 	print("Server created successfully. Waiting for players...")
 
@@ -44,7 +45,6 @@ func join_server(ip_address: String) -> void:
 
 # --- RPC Handlers (Server-Side Logic) ---
 
-# This RPC is called by a peer from World.gd once it has loaded the scene.
 @rpc("any_peer", "reliable")
 func server_rpc_request_spawn():
 	var peer_id = multiplayer.get_remote_sender_id()
@@ -52,9 +52,7 @@ func server_rpc_request_spawn():
 	_spawn_player(peer_id)
 
 
-# --- REMEDIAL STEP ---
-# This new RPC is called by the server on a specific client to tell it to load the world.
-@rpc("authority", "reliable")
+@rpc("authority", "call_local", "reliable")
 func client_rpc_load_world(scene_path: String) -> void:
 	get_tree().change_scene_to_file(scene_path)
 
@@ -68,9 +66,6 @@ func _on_peer_connected(peer_id: int) -> void:
 	print("Player connected: ", peer_id)
 	players[peer_id] = { "name": "Player " + str(peer_id) }
 
-	# --- REMEDIAL STEP ---
-	# Command the newly connected peer (whether it's the host or a client)
-	# to load the main world scene.
 	rpc_id(peer_id, "client_rpc_load_world", "res://scenes/main/World.tscn")
 
 
@@ -93,13 +88,17 @@ func _spawn_player(peer_id: int):
 	if not multiplayer.is_server():
 		return
 
-	print("Spawning player for peer: ", peer_id)
-	var player = player_scene.instantiate()
-	player.name = str(peer_id)
-	player.set_multiplayer_authority(peer_id)
+	# --- REMEDIAL STEP ---
+	# If we don't have a reference to the spawner yet, find it.
+	# This only happens once, for the host.
+	if not is_instance_valid(player_spawner):
+		player_spawner = get_tree().get_root().find_child("PlayerSpawner", true, false)
 
-	var player_container = get_tree().get_root().find_child("PlayerContainer", true, false)
-	if player_container:
-		player_container.add_child(player)
-	else:
-		printerr("CRITICAL: Could not find PlayerContainer to spawn player!")
+	if not is_instance_valid(player_spawner):
+		printerr("CRITICAL: PlayerSpawner not found in the scene tree!")
+		return
+
+	print("Requesting spawner to spawn player for peer: ", peer_id)
+	# Call the spawner's spawn method. We pass the peer_id as data,
+	# which will be given to our custom spawn function.
+	player_spawner.spawn(peer_id)
