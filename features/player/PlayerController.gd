@@ -3,8 +3,7 @@
 class_name PlayerController
 extends CharacterBody2D
 
-@export var speed: float = 300.0
-
+@export var speed: float = 100.0
 @onready var authoritative_node = $PlayerAuthoritative
 @onready var camera = $Camera2D
 @onready var area_of_interest: Area2D = $AreaOfInterest
@@ -14,7 +13,12 @@ var pending_inputs: Array = []
 var debug_reconciliation: bool = true
 var position_error_threshold: float = 5.0  # Don't reconcile tiny differences
 var last_server_position: Vector2 = Vector2.ZERO
-var smoothing_factor: float = 0.2  # For interpolation
+var smoothing_factor: float = 0.2
+var last_input_vector: Vector2 = Vector2.ZERO
+#var debug_reconciliation: bool = true
+#var position_error_threshold: float = 5.0  # Tolerance before correction
+var position_error_deadzone: float = 2.0  # Ignore errors this small
+#var smoothing_factor: float = 0.2  # How aggressively to correct (0.1 = smooth, 1.0 = snap)  # For interpolation
 func _ready() -> void:
 	print("[PLAYER] ========== PLAYER READY START ==========")
 	print("[PLAYER] Name: %s" % name)
@@ -77,12 +81,16 @@ func _physics_process(delta: float) -> void:
 
 	var input_vector := Input.get_vector("ui_left", "ui_right", "ui_up", "ui_down")
 	
-	# CRITICAL FIX: Only send inputs when there's actual movement OR when stopping
 	var has_input = input_vector.length() > 0.01
 	var was_moving = velocity.length() > 0.01
+	var input_changed = input_vector != last_input_vector
 	
-	if not has_input and not was_moving:
-		return  # Don't send anything if we're idle
+	# CRITICAL: Send input when:
+	# 1. We have input
+	# 2. We're still moving (momentum)
+	# 3. Input just changed (including going to zero!)
+	if not has_input and not was_moving and not input_changed:
+		return  # Only skip if truly idle AND input hasn't changed
 	
 	var input_packet: Dictionary = {
 		"sequence": sequence_id,
@@ -92,25 +100,31 @@ func _physics_process(delta: float) -> void:
 	}
 
 	_process_movement(input_packet)
+	pending_inputs.append(input_packet)
 	
-	# Only track inputs that matter
-	if has_input or was_moving:
-		pending_inputs.append(input_packet)
-	if pending_inputs.size() > 30:  # Half second at 60fps
-	# Keep only recent inputs
+	# Clean up old inputs when needed
+	if pending_inputs.size() > 60:
 		var cutoff_sequence = sequence_id - 30
 		pending_inputs = pending_inputs.filter(func(input):
 			return input["sequence"] > cutoff_sequence
-	)
+		)
+		
+		if debug_reconciliation:
+			print("[CLEANUP] Trimmed old inputs, kept %d" % pending_inputs.size())
 	
-	if debug_reconciliation:
-		print("[CLEANUP] Trimmed old inputs, kept %d" % pending_inputs.size())
+	# Send to server
 	if multiplayer.is_server():
 		authoritative_node.receive_client_input(input_packet)
 	else:
-		authoritative_node.rpc("receive_client_input", input_packet)
-
+		authoritative_node.rpc_id(1, "receive_client_input", input_packet)
+	
+	# Update tracking
+	last_input_vector = input_vector
 	sequence_id += 1
+	
+	# Debug every 10th input
+	if sequence_id % 10 == 0:
+		print("[CLIENT %s] Sent seq %d, input: %s" % [name, sequence_id, input_vector])
 
 func _process_movement(input_packet: Dictionary) -> void:
 	velocity = input_packet["input_vector"] * speed
@@ -118,9 +132,40 @@ func _process_movement(input_packet: Dictionary) -> void:
 
 @rpc("any_peer", "call_remote", "reliable")
 func receive_server_state(server_state: Dictionary) -> void:
+	# DEBUG: Always log what we're receiving
+	if debug_reconciliation and is_multiplayer_authority() and server_state["sequence"] % 10 == 0:
+		print("[STATE] Server seq: %d, My seq: %d, Server pos: %s, My pos: %s" % [
+			server_state["sequence"], 
+			sequence_id,
+			server_state["position"],
+			global_position
+		])
+	
 	if is_multiplayer_authority():
+		# Calculate position error
 		var position_error = global_position.distance_to(server_state["position"])
 		
+		# NEW: Dead zone for tiny errors
+		var position_error_deadzone: float = 2.0
+		
+		# Ignore tiny errors completely
+		if position_error < position_error_deadzone:
+			# Just update sequence tracking, don't touch position
+			var last_processed_sequence: int = server_state["sequence"]
+			
+			# Clean up old inputs without touching position
+			var old_count = pending_inputs.size()
+			pending_inputs = pending_inputs.filter(func(input): 
+				return input["sequence"] > last_processed_sequence
+			)
+			
+			if debug_reconciliation and old_count != pending_inputs.size():
+				print("[STATE] Ignored small error (%.2f), cleaned %d old inputs" % [
+					position_error, old_count - pending_inputs.size()
+				])
+			return
+		
+		# Log significant errors
 		if debug_reconciliation and position_error > 0.1:
 			print("[RECONCILE] Error: %.2f pixels, Seq: %d, Pending: %d" % [
 				position_error, 
@@ -128,10 +173,13 @@ func receive_server_state(server_state: Dictionary) -> void:
 				pending_inputs.size()
 			])
 		
-		# Only reconcile if error is significant
+		# Only reconcile if error is above threshold
 		if position_error > position_error_threshold:
 			if debug_reconciliation:
 				print("[RECONCILE] CORRECTING! Error too large: %.2f" % position_error)
+			
+			# Store old position for debug
+			var old_pos = global_position
 			
 			# Smooth the correction instead of snapping
 			global_position = global_position.lerp(server_state["position"], smoothing_factor)
@@ -139,20 +187,43 @@ func receive_server_state(server_state: Dictionary) -> void:
 			
 			# Clear old inputs
 			var last_processed_sequence: int = server_state["sequence"]
+			var old_pending_count = pending_inputs.size()
+			
 			pending_inputs = pending_inputs.filter(func(input): 
 				return input["sequence"] > last_processed_sequence
 			)
 			
+			if debug_reconciliation:
+				print("[RECONCILE] Moved from %s to %s, cleared %d inputs, replaying %d" % [
+					old_pos, global_position, 
+					old_pending_count - pending_inputs.size(),
+					pending_inputs.size()
+				])
+			
 			# Re-apply pending inputs
 			for input_packet in pending_inputs:
 				_process_movement(input_packet)
+				
+			# Final position check
+			if debug_reconciliation and pending_inputs.size() > 0:
+				var new_error = global_position.distance_to(server_state["position"])
+				print("[RECONCILE] After replay - new error: %.2f" % new_error)
+				
 		else:
-			# Just update the sequence without changing position
+			# Error is small but not tiny - just update sequence
 			var last_processed_sequence: int = server_state["sequence"]
 			pending_inputs = pending_inputs.filter(func(input): 
 				return input["sequence"] > last_processed_sequence
 			)
+			
+			if debug_reconciliation:
+				print("[STATE] Acceptable error (%.2f), updated sequence only" % position_error)
+				
 	else:
 		# Remote players - just update directly
 		global_position = server_state["position"]
 		velocity = server_state["velocity"]
+		
+		# Debug remote updates occasionally
+		if debug_reconciliation and server_state["sequence"] % 50 == 0:
+			print("[REMOTE] Updated %s to pos %s" % [name, global_position])

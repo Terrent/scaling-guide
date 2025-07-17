@@ -59,6 +59,7 @@ signal server_advance_day_requested()
 ## Emitted when day advance completes. Server only.
 signal server_advance_day_completed(success: bool, error_msg: String)
 
+signal server_day_passed()
 ## Client receives time updates
 signal client_time_changed(hour: int, minute: int)
 ## Client receives full time sync
@@ -165,7 +166,7 @@ signal client_inventory_updated()
 signal client_inventory_opened()
 signal client_inventory_closed()
 signal client_active_hotbar_slot_changed(slot_index: int)
-
+signal client_inventory_changed()
 # Item consumption
 signal server_item_consumed(player_id: int, item_id: String, item_data: Resource)
 signal server_player_health_change_requested(player_id: int, amount: float, change_type: String, source: String)
