@@ -11,7 +11,10 @@ extends CharacterBody2D
 @onready var synchronizer: MultiplayerSynchronizer = $MultiplayerSynchronizer
 var sequence_id: int = 0
 var pending_inputs: Array = []
-
+var debug_reconciliation: bool = true
+var position_error_threshold: float = 5.0  # Don't reconcile tiny differences
+var last_server_position: Vector2 = Vector2.ZERO
+var smoothing_factor: float = 0.2  # For interpolation
 func _ready() -> void:
 	print("[PLAYER] ========== PLAYER READY START ==========")
 	print("[PLAYER] Name: %s" % name)
@@ -74,24 +77,37 @@ func _physics_process(delta: float) -> void:
 
 	var input_vector := Input.get_vector("ui_left", "ui_right", "ui_up", "ui_down")
 	
-	# Only print if there's actual input
-	if input_vector.length() > 0.01:
-		print("[PLAYER] Input detected for %s: %s" % [name, input_vector])
+	# CRITICAL FIX: Only send inputs when there's actual movement OR when stopping
+	var has_input = input_vector.length() > 0.01
+	var was_moving = velocity.length() > 0.01
+	
+	if not has_input and not was_moving:
+		return  # Don't send anything if we're idle
 	
 	var input_packet: Dictionary = {
 		"sequence": sequence_id,
 		"input_vector": input_vector,
-		"delta": delta
+		"delta": delta,
+		"timestamp": Time.get_ticks_msec()
 	}
 
 	_process_movement(input_packet)
-	pending_inputs.append(input_packet)
-
+	
+	# Only track inputs that matter
+	if has_input or was_moving:
+		pending_inputs.append(input_packet)
+	if pending_inputs.size() > 30:  # Half second at 60fps
+	# Keep only recent inputs
+		var cutoff_sequence = sequence_id - 30
+		pending_inputs = pending_inputs.filter(func(input):
+			return input["sequence"] > cutoff_sequence
+	)
+	
+	if debug_reconciliation:
+		print("[CLEANUP] Trimmed old inputs, kept %d" % pending_inputs.size())
 	if multiplayer.is_server():
-		# Direct call for host
 		authoritative_node.receive_client_input(input_packet)
 	else:
-		# RPC for clients
 		authoritative_node.rpc("receive_client_input", input_packet)
 
 	sequence_id += 1
@@ -102,28 +118,41 @@ func _process_movement(input_packet: Dictionary) -> void:
 
 @rpc("any_peer", "call_remote", "reliable")
 func receive_server_state(server_state: Dictionary) -> void:
-	# Only log every 10th update to reduce spam
-	if server_state["sequence"] % 10 == 0:
-		print("[PLAYER] State update for %s from server. Authority: %s" % [name, is_multiplayer_authority()])
-
 	if is_multiplayer_authority():
-		# Reconciliation for our player
-		global_position = server_state["position"]
-		velocity = server_state["velocity"]
-
-		var last_processed_sequence: int = server_state["sequence"]
+		var position_error = global_position.distance_to(server_state["position"])
 		
-		var i := 0
-		while i < pending_inputs.size():
-			if pending_inputs[i]["sequence"] <= last_processed_sequence:
-				pending_inputs.remove_at(i)
-			else:
-				i += 1
-
-		for input_packet in pending_inputs:
-			_process_movement(input_packet)
+		if debug_reconciliation and position_error > 0.1:
+			print("[RECONCILE] Error: %.2f pixels, Seq: %d, Pending: %d" % [
+				position_error, 
+				server_state["sequence"],
+				pending_inputs.size()
+			])
+		
+		# Only reconcile if error is significant
+		if position_error > position_error_threshold:
+			if debug_reconciliation:
+				print("[RECONCILE] CORRECTING! Error too large: %.2f" % position_error)
 			
+			# Smooth the correction instead of snapping
+			global_position = global_position.lerp(server_state["position"], smoothing_factor)
+			velocity = server_state["velocity"]
+			
+			# Clear old inputs
+			var last_processed_sequence: int = server_state["sequence"]
+			pending_inputs = pending_inputs.filter(func(input): 
+				return input["sequence"] > last_processed_sequence
+			)
+			
+			# Re-apply pending inputs
+			for input_packet in pending_inputs:
+				_process_movement(input_packet)
+		else:
+			# Just update the sequence without changing position
+			var last_processed_sequence: int = server_state["sequence"]
+			pending_inputs = pending_inputs.filter(func(input): 
+				return input["sequence"] > last_processed_sequence
+			)
 	else:
-		# Direct state update for remote players
+		# Remote players - just update directly
 		global_position = server_state["position"]
 		velocity = server_state["velocity"]
