@@ -31,4 +31,5 @@ color = Color(0.3, 0.3, 0.3, 1)
 [node name="PlayerContainer" type="Node" parent="."]
 
 [node name="PlayerSpawner" type="MultiplayerSpawner" parent="."]
-spawn_path = NodePath("..")
+_spawnable_scenes = PackedStringArray("uid://dl24pvqm6t4lx")
+spawn_path = NodePath(".")

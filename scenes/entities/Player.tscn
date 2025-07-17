@@ -44,7 +44,6 @@ shape = SubResource("RectangleShape2D_o7et6")
 
 [node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="."]
 replication_config = SubResource("SceneReplicationConfig_24gqh")
-public_visibility = false
 
 [node name="AreaOfInterest" type="Area2D" parent="."]
 
