@@ -80,13 +80,37 @@ func _on_peer_connected(id: int) -> void:
 	print("[NETWORK] Peer connected signal received for ID: ", id)
 	
 	if not multiplayer.is_server():
-		print("[NETWORK] Not server, ignoring peer connection")
 		return
 
-	print("[NETWORK] Server registering player: ", id)
 	players[id] = { "name": "Player " + str(id) }
-	# EventBus.peer_connected.emit(id)
+	
+	# Add this debug check after spawning
+	call_deferred("_check_late_join_visibility", id)
 
+func _check_late_join_visibility(peer_id: int) -> void:
+	await get_tree().process_frame
+	
+	print("[NETWORK] Checking late-join visibility for peer %d" % peer_id)
+	var new_player = get_tree().get_root().find_child(str(peer_id), true, false)
+	if not new_player:
+		print("[NETWORK] ERROR: Could not find spawned player %d" % peer_id)
+		return
+	
+	var all_players = get_tree().get_nodes_in_group("players")
+	print("[NETWORK] Found %d total players" % all_players.size())
+	
+	for existing_player in all_players:
+		if existing_player == new_player:
+			continue
+		
+		print("[NETWORK] Checking distance between %s and %s" % [
+			new_player.name, existing_player.name
+		])
+		
+		if existing_player.area_of_interest.overlaps_body(new_player):
+			print("[NETWORK] Players spawned near each other! Setting visibility...")
+			new_player.synchronizer.set_visibility_for(existing_player.name.to_int(), true)
+			existing_player.synchronizer.set_visibility_for(new_player.name.to_int(), true)
 func _on_peer_disconnected(id: int) -> void:
 	print("[NETWORK] Peer disconnected signal received for ID: ", id)
 	

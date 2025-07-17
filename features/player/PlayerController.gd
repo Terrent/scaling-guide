@@ -7,7 +7,8 @@ extends CharacterBody2D
 
 @onready var authoritative_node = $PlayerAuthoritative
 @onready var camera = $Camera2D
-
+@onready var area_of_interest: Area2D = $AreaOfInterest
+@onready var synchronizer: MultiplayerSynchronizer = $MultiplayerSynchronizer
 var sequence_id: int = 0
 var pending_inputs: Array = []
 
@@ -36,7 +37,34 @@ func _ready() -> void:
 		print("[PLAYER] This is REMOTE player - colored RED")
 	
 	print("[PLAYER] ========== PLAYER READY END ==========")
+	add_to_group("players")
+	
+	# CRITICAL: Server-only visibility logic
+	if multiplayer.is_server():
+		area_of_interest.body_entered.connect(_on_area_of_interest_body_entered)
+		area_of_interest.body_exited.connect(_on_area_of_interest_body_exited)
 
+func _on_area_of_interest_body_exited(body: Node2D) -> void:
+	if not body.is_in_group("players") or body == self:
+		return
+	
+	# Remove visibility both ways
+	body.synchronizer.set_visibility_for(name.to_int(), false)
+	synchronizer.set_visibility_for(body.name.to_int(), false)
+	
+	print("[AoI] %s can no longer see %s" % [name, body.name])
+
+func _on_area_of_interest_body_entered(body: Node2D) -> void:
+	if not body.is_in_group("players") or body == self:
+		return
+	
+	# THE SYMMETRIC HANDSHAKE
+	# Make other player visible to me
+	body.synchronizer.set_visibility_for(name.to_int(), true)
+	# Make me visible to other player
+	synchronizer.set_visibility_for(body.name.to_int(), true)
+	
+	print("[AoI] %s can now see %s" % [name, body.name])
 func _physics_process(delta: float) -> void:
 	if not is_multiplayer_authority():
 		return

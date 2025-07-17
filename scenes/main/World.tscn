@@ -28,8 +28,8 @@ offset_right = 50.0
 offset_bottom = 5.0
 color = Color(0.3, 0.3, 0.3, 1)
 
-[node name="PlayerContainer" type="Node" parent="."]
-
 [node name="PlayerSpawner" type="MultiplayerSpawner" parent="."]
 _spawnable_scenes = PackedStringArray("uid://dl24pvqm6t4lx")
-spawn_path = NodePath(".")
+spawn_path = NodePath("PlayerContainer")
+
+[node name="PlayerContainer" type="Node" parent="PlayerSpawner"]
