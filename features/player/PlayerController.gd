@@ -90,7 +90,7 @@ func _process_movement(input_packet: Dictionary) -> void:
 
 # This is a Remote Procedure Call that ONLY the server can invoke on this client.
 # It is the "Reconciliation" part of our networking model.
-@rpc("any_peer", "call_local", "reliable")
+@rpc("authority", "call_local", "reliable")
 func client_rpc_reconcile_state(server_state: Dictionary) -> void:
 	# Security check: Only process if this RPC came from the server
 	if multiplayer.get_remote_sender_id() != 1:

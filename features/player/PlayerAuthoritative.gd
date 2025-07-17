@@ -35,7 +35,7 @@ func _ready() -> void:
 
 # This RPC is called by the client's PlayerController.gd script.
 # The 'any_peer' keyword allows any client to call this function on the server.
-@rpc("any_peer", "unreliable")
+@rpc("any_peer", "call_remote", "unreliable")
 func receive_client_input(input_packet: Dictionary) -> void:
 	# --- Security and Validation ---
 	# 1. Security Check: Ensure the RPC is from the peer that actually owns

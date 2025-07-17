@@ -28,7 +28,9 @@ func create_server(settings: Dictionary) -> void:
 	
 	_on_peer_connected(multiplayer.get_unique_id())
 	print("Server created successfully. Waiting for players...")
-
+	
+	# Host should load world immediately
+	get_tree().change_scene_to_file("res://scenes/main/World.tscn")
 func join_server(ip_address: String) -> void:
 	var error = peer.create_client(ip_address, PORT)
 	if error != OK:
@@ -38,9 +40,14 @@ func join_server(ip_address: String) -> void:
 	multiplayer.multiplayer_peer = peer
 	print("Attempting to join server at ", ip_address)
 
-@rpc("any_peer", "reliable")
+@rpc("any_peer", "call_local", "reliable")  # Add call_local!
 func server_rpc_request_spawn():
 	var peer_id = multiplayer.get_remote_sender_id()
+	
+	# Fix: When the host calls this on themselves, sender_id is 0
+	if peer_id == 0:
+		peer_id = multiplayer.get_unique_id()
+	
 	print("Received spawn request from peer: ", peer_id)
 	_spawn_player(peer_id)
 
