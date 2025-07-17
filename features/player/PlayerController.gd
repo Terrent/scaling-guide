@@ -18,7 +18,10 @@ func _ready() -> void:
 	print("[PLAYER] Peer ID: %d" % multiplayer.get_unique_id())
 	print("[PLAYER] Authority: %d" % get_multiplayer_authority())
 	print("[PLAYER] Is Authority: %s" % is_multiplayer_authority())
-	
+	print("[PLAYER] Area monitoring: %s" % area_of_interest.monitoring)
+	print("[PLAYER] Area monitorable: %s" % area_of_interest.monitorable)
+	print("[PLAYER] Body collision layer: %d, mask: %d" % [collision_layer, collision_mask])
+	print("[PLAYER] Area collision layer: %d, mask: %d" % [area_of_interest.collision_layer, area_of_interest.collision_mask])
 	camera.enabled = is_multiplayer_authority()
 	print("[PLAYER] Camera enabled: %s" % camera.enabled)
 	
