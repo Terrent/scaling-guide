@@ -37,7 +37,11 @@ func receive_client_input(input_packet: Dictionary) -> void:
 		return
 
 	player_controller._process_movement(input_packet)
-	last_processed_sequence = input_packet["sequence"]
+	last_processed_sequence = input_packet["sequence"]  # IS THIS ACTUALLY HAPPENING?
+	
+	# DEBUG: Add this
+	if broadcast_count % 10 == 0:
+		print("[AUTH] Processing seq %d for player %s" % [last_processed_sequence, player_controller.name])
 
 func _on_state_update_timer_timeout() -> void:
 	var state_snapshot: Dictionary = {
