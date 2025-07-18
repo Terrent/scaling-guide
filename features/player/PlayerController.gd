@@ -15,7 +15,22 @@ var interpolation_buffer: Array = []
 const BUFFER_SIZE = 20
 const INTERPOLATION_DELAY_MS = 100
 
-
+func _process(delta: float) -> void:
+	if not is_multiplayer_authority():
+		return
+		
+	# Debug what we can actually see
+	if Engine.get_process_frames() % 60 == 0:  # Every second
+		var visible_players = []
+		for player in get_tree().get_nodes_in_group("players"):
+			if player != self and player.visible:
+				visible_players.append(player.name)
+		
+		print("[VISIBILITY] I am %s (peer %d). I can see: %s" % [
+			name, 
+			multiplayer.get_unique_id(),
+			visible_players if visible_players.size() > 0 else "NOBODY"
+		])
 func _ready() -> void:
 	add_to_group("players")
 	camera.enabled = is_multiplayer_authority()
@@ -31,13 +46,22 @@ func _ready() -> void:
 		modulate = Color.RED
 	
 	# The server is the only one that cares about AoI signals.
+	print("[AoI SETUP] Player '%s' initial visibility state:" % name)
+	print("  - Synchronizer public_visibility: %s" % synchronizer.public_visibility)
+	print("  - Multiplayer authority: %d" % synchronizer.get_multiplayer_authority())
+	
+	# CRITICAL: Server-only visibility logic
 	if multiplayer.is_server():
-		# --- NEW DEBUG PRINT ---
 		print("[AoI SETUP] Player '%s' (SERVER) is connecting its Area2D signals." % name)
 		area_of_interest.body_entered.connect(_on_area_of_interest_body_entered)
 		area_of_interest.body_exited.connect(_on_area_of_interest_body_exited)
-
-
+	if synchronizer:
+		print("[FINAL CHECK] Player %s synchronizer:" % name)
+		print("  - public_visibility: %s" % synchronizer.public_visibility)
+		print("  - replication_interval: %s" % synchronizer.replication_interval)
+		print("  - authority: %d" % synchronizer.get_multiplayer_authority())
+	else:
+		print("[ERROR] Player %s has no synchronizer!" % name)
 # --- (Your _physics_process and receive_server_state are fine, no changes needed there) ---
 func _physics_process(delta: float):
 	if is_multiplayer_authority():
@@ -100,42 +124,40 @@ func _process_movement(input_packet: Dictionary):
 # DEBUGGED AREA OF INTEREST CALLBACKS
 #=============================================================================
 
-func _on_area_of_interest_body_exited(body: Node2D) -> void:
-	# --- NEW DEBUG PRINT ---
-	# This is the most important print. It tells us if the signal fired at all.
-	print("\n--- AoI EVENT ---")
-	print("[AoI] EXIT detected on '%s's Area. Body that exited: '%s'." % [name, body.name])
-
-	# This is your existing guard clause. We'll add a print to see if it's the problem.
-	if not body.is_in_group("players") or body == self:
-		# --- NEW DEBUG PRINT ---
-		print("[AoI] Body '%s' is not a player or is self. Ignoring." % body.name)
-		return
-	
-	# --- NEW DEBUG PRINTS ---
-	# These prints confirm we are about to call the functions to hide the players.
-	print("[AoI ACTION] HIDING: Telling synchronizer on '%s' to HIDE from peer %d." % [name, body.name.to_int()])
-	print("[AoI ACTION] HIDING: Telling synchronizer on '%s' to HIDE from peer %d." % [body.name, name.to_int()])
-
-	# Your existing logic.
-	synchronizer.set_visibility_for(body.name.to_int(), false)
-	body.synchronizer.set_visibility_for(name.to_int(), false)
-
-
 func _on_area_of_interest_body_entered(body: Node2D) -> void:
-	# --- NEW DEBUG PRINT ---
 	print("\n--- AoI EVENT ---")
 	print("[AoI] ENTER detected on '%s's Area. Body that entered: '%s'." % [name, body.name])
-
-	if not body.is_in_group("players") or body == self:
-		# --- NEW DEBUG PRINT ---
-		print("[AoI] Body '%s' is not a player or is self. Ignoring." % body.name)
+	
+	if not body.is_in_group("players"):
+		print("[AoI] Body '%s' is not in 'players' group. Groups: %s" % [body.name, body.get_groups()])
 		return
 	
-	# --- NEW DEBUG PRINTS ---
-	print("[AoI ACTION] SHOWING: Telling synchronizer on '%s' to SHOW to peer %d." % [name, body.name.to_int()])
-	print("[AoI ACTION] SHOWING: Telling synchronizer on '%s' to SHOW to peer %d." % [body.name, name.to_int()])
-
-	# Your existing logic.
-	synchronizer.set_visibility_for(body.name.to_int(), true)
+	if body == self:
+		print("[AoI] Body '%s' is self. Ignoring." % body.name)
+		return
+	
+	# Debug synchronizer state
+	print("[AoI DEBUG] Synchronizer states:")
+	print("  - My (%s) synchronizer exists: %s" % [name, synchronizer != null])
+	print("  - Their (%s) synchronizer exists: %s" % [body.name, body.synchronizer != null])
+	print("  - My public_visibility: %s" % synchronizer.public_visibility)
+	print("  - Their public_visibility: %s" % body.synchronizer.public_visibility)
+	
+	# THE SYMMETRIC HANDSHAKE
+	print("[AoI ACTION] Setting visibility...")
 	body.synchronizer.set_visibility_for(name.to_int(), true)
+	synchronizer.set_visibility_for(body.name.to_int(), true)
+	print("[AoI ACTION] Visibility set complete.")
+
+func _on_area_of_interest_body_exited(body: Node2D) -> void:
+	print("\n--- AoI EVENT ---")
+	print("[AoI] EXIT detected on '%s's Area. Body that exited: '%s'." % [name, body.name])
+	
+	if not body.is_in_group("players") or body == self:
+		return
+	
+	# Remove visibility both ways
+	print("[AoI ACTION] Removing visibility...")
+	body.synchronizer.set_visibility_for(name.to_int(), false)
+	synchronizer.set_visibility_for(body.name.to_int(), false)
+	print("[AoI ACTION] Visibility removal complete.")
